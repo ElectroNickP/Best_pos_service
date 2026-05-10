@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Best Sea — Pier POS</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <link rel="stylesheet" href="/static/css/pos.css?v=1">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+</head>
+<body>
+
+    <!-- LOADER -->
+    <div id="loader-overlay">
+        <div class="loader-spinner"></div>
+        <div class="loader-text">Loading POS...</div>
+    </div>
+
+    <!-- SUCCESS POPUP -->
+    <div id="success-popup">✅ Done</div>
+
+    <!-- ===== HEADER ===== -->
+    <header class="app-header">
+        <div class="header-left">
+            <h2 id="greeting">Pier POS</h2>
+            <div class="header-sub">
+                <span id="date-display">Loading...</span>
+                <span style="margin-left:8px; opacity:0.3; font-size:9px;">v1.0 Standalone</span>
+            </div>
+        </div>
+        <div class="header-right">
+            <span class="header-badge" id="session-badge">CLOSED</span>
+            <button class="sync-btn" id="sync-btn" onclick="syncData()" title="Sync">🔄</button>
+        </div>
+    </header>
+
+    <!-- ===== KPI BAR ===== -->
+    <div class="kpi-bar">
+        <div class="kpi-item">
+            <div class="kpi-val" id="kpi-revenue">0฿</div>
+            <div class="kpi-label">Revenue</div>
+        </div>
+        <div class="kpi-item">
+            <div class="kpi-val" id="kpi-txns">0</div>
+            <div class="kpi-label">Sales</div>
+        </div>
+        <div class="kpi-item">
+            <div class="kpi-val cash" id="kpi-cash">0฿</div>
+            <div class="kpi-label">💵 Cash</div>
+        </div>
+        <div class="kpi-item">
+            <div class="kpi-val online" id="kpi-online">0฿</div>
+            <div class="kpi-label">📱 Online</div>
+        </div>
+    </div>
+
+    <!-- ===== TABS ===== -->
+    <div class="tabs">
+        <button class="tab-btn active" id="tab-btn-pos" onclick="switchTab('pos')">🛒 POS</button>
+        <button class="tab-btn" id="tab-btn-report" onclick="switchTab('report')">📊 Report</button>
+    </div>
+
+    <!-- ===== BODY ===== -->
+    <div class="app-body">
+
+        <!-- POS PANEL -->
+        <div id="panel-pos" class="tab-panel active">
+            <!-- Session Controls -->
+            <div class="session-controls" id="session-controls">
+                <button class="session-open-btn" id="session-open-btn" onclick="toggleSession()">🟢 Open New Session</button>
+            </div>
+            <div id="session-active-controls" style="display:none;">
+                <button class="session-close-btn" onclick="toggleSession()">🔴 Close Session &amp; Finalize Report</button>
+            </div>
+            <div class="pos-layout">
+                <!-- LEFT: Products -->
+                <div class="products-column">
+                    <!-- Category Pills -->
+                    <div class="category-pills" id="category-pills">
+                        <button class="cat-pill active" data-cat="all" onclick="filterCategory('all', this)">All</button>
+                        <!-- Dynamic pills injected -->
+                    </div>
+
+                    <!-- Product Grid -->
+                    <div class="product-scroll">
+                        <div class="product-grid" id="product-grid">
+                            <!-- Product cards injected -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- RIGHT: Cart Sidebar (desktop) -->
+                <div class="cart-sidebar">
+                    <div class="cart-header">
+                        <h3>🛒 Order</h3>
+                        <button class="cart-clear-btn" onclick="clearCart()">Clear</button>
+                    </div>
+                    <div class="cart-items" id="cart-items">
+                        <div class="cart-empty">Tap a product to add it</div>
+                    </div>
+                    <div class="cart-footer">
+                        <div class="cart-total-row">
+                            <span class="cart-total-label">Total</span>
+                            <span class="cart-total-val" id="cart-total">0฿</span>
+                        </div>
+                        <div class="pay-buttons">
+                            <button class="pay-btn cash-btn" id="btn-pay-cash" onclick="processSale('cash')" disabled>💵 Cash</button>
+                            <button class="pay-btn online-btn" id="btn-pay-online" onclick="processSale('online')" disabled>📱 Online</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- REPORT PANEL -->
+        <div id="panel-report" class="tab-panel">
+            <div class="report-panel">
+                <!-- Profit KPI Cards -->
+                <div class="report-kpi-grid" id="report-kpi-grid">
+                    <div class="rkpi revenue">
+                        <div class="rkpi-val" id="rk-revenue">0฿</div>
+                        <div class="rkpi-label">Revenue</div>
+                    </div>
+                    <div class="rkpi cost">
+                        <div class="rkpi-val" id="rk-cost">0฿</div>
+                        <div class="rkpi-label">Cost</div>
+                    </div>
+                    <div class="rkpi profit">
+                        <div class="rkpi-val" id="rk-profit">0฿</div>
+                        <div class="rkpi-label">Profit</div>
+                    </div>
+                    <div class="rkpi margin">
+                        <div class="rkpi-val" id="rk-margin">0%</div>
+                        <div class="rkpi-label">Margin</div>
+                    </div>
+                </div>
+
+                <!-- Breakdown Table -->
+                <div class="report-section">
+                    <div class="rs-header">📦 Product Breakdown</div>
+                    <div class="report-table-wrap">
+                        <table class="report-table" id="report-breakdown-table">
+                            <thead>
+                                <tr>
+                                    <th>Product</th>
+                                    <th class="num">Qty</th>
+                                    <th class="num">Sale</th>
+                                    <th class="num">Cost</th>
+                                    <th class="num">Revenue</th>
+                                    <th class="num">Profit</th>
+                                </tr>
+                            </thead>
+                            <tbody id="report-breakdown-body">
+                                <!-- Rows injected -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Transaction Log -->
+                <div class="report-section">
+                    <div class="rs-header">🧾 Transactions <span class="rs-count" id="report-tx-count">0</span></div>
+                    <div class="tx-list" id="report-tx-list">
+                        <!-- Transaction rows injected -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- MOBILE CART BAR (visible only on mobile when cart has items) -->
+    <div class="mobile-cart-bar" id="mobile-cart-bar">
+        <div class="mcb-total" id="mcb-total">0฿</div>
+        <button class="mcb-checkout" onclick="openMobileCart()">Checkout →</button>
+    </div>
+
+    <!-- MOBILE BOTTOM SHEET (for cart on small screens) -->
+    <div class="sheet-overlay" id="sheet-overlay" onclick="closeMobileCart()">
+        <div class="sheet-content" onclick="event.stopPropagation()">
+            <div class="sheet-handle"></div>
+            <h3 style="font-weight:800; margin-bottom:16px;">🛒 Your Order</h3>
+            <div id="mobile-cart-items"></div>
+            <div style="margin-top:20px; border-top: 2px solid var(--border); padding-top:16px;">
+                <div style="display:flex; justify-content:space-between; margin-bottom:16px;">
+                    <span style="font-weight:600; color:var(--text-secondary);">Total</span>
+                    <span style="font-size:22px; font-weight:900;" id="mobile-cart-total">0฿</span>
+                </div>
+                <div class="pay-buttons">
+                    <button class="pay-btn cash-btn" onclick="processSale('cash')">💵 Cash</button>
+                    <button class="pay-btn online-btn" onclick="processSale('online')">📱 Online</button>
+                </div>
+                <button style="width:100%; margin-top:12px; padding:12px; border:none; background:transparent; color:var(--red); font-weight:700; cursor:pointer;" onclick="clearCart(); closeMobileCart();">Clear All</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/pos.js?v=1"></script>
+</body>
+</html>

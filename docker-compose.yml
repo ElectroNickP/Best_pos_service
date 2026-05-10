@@ -1,0 +1,42 @@
+version: "3.8"
+
+services:
+  # ── PostgreSQL Database ──
+  postgres:
+    image: postgres:16-alpine
+    container_name: pos_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: pos_db
+      POSTGRES_USER: pos_user
+      POSTGRES_PASSWORD: pos_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"  # External 5433 to avoid conflicts with other PG instances
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pos_user -d pos_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── POS Service ──
+  pos:
+    build: .
+    container_name: pos_service
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://pos_user:pos_password@postgres:5432/pos_db
+    ports:
+      - "${PORT:-8000}:8000"
+    volumes:
+      - ./google_service_account:/app/google_service_account:ro
+      - ./web:/app/web:ro
+
+volumes:
+  postgres_data:
