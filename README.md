@@ -1,99 +1,77 @@
-# Best Sea — POS Service
+# Best Sea — POS Service (Standalone)
 
-Standalone Point-of-Sale microservice for pier operations and tourist shopping.
+Professional Point-of-Sale (POS) microservice designed for autonomous operation on any pier. It manages sales, cash sessions, and provides detailed financial reporting independently.
 
-## Features
+---
 
-- 🛒 **POS Register** — Cash sessions, multi-item sales (cash & online), daily reports
-- 📦 **Product Management** — Auto-sync from Google Sheets, categories, cost/sale prices
-- 💳 **NSPK Payments** — Russian SBP → THB conversion for tourist online orders
-- 📊 **Analytics** — Revenue, cost, profit, margin per product and per day
-- 🔐 **Dual Auth** — API Key (for bot integration) + Telegram initData (for Mini App)
-- 🌐 **Dual Frontend** — Works as both standalone web app and Telegram Mini App
+## 🚀 One-Click Deployment
 
-## Quick Start
+This service is designed to be moved to any server easily. Follow these steps:
 
-### Docker (recommended)
+1. **Clone/Copy** this folder to your server.
+2. **Setup environment**:
+   ```bash
+   chmod +x manage.sh
+   ./manage.sh setup
+   ```
+3. **Configure**:
+   - Edit the `.env` file (Set your `API_KEY`, `BOT_TOKENS`, and `STORE_SPREADSHEET_ID`).
+   - Place your Google Service Account JSON file into the `google_service_account/` directory.
+4. **Launch**:
+   ```bash
+   ./manage.sh start
+   ```
 
-```bash
-cp .env.example .env
-# Edit .env with your API_KEY, BOT_TOKENS, STORE_SPREADSHEET_ID
-# Place Google Service Account JSON in google_service_account/
+---
 
-docker-compose up -d --build
-# POS available at http://localhost:8000
-# Swagger docs at http://localhost:8000/docs
-```
+## 🏗 Features & Autonomy
 
-### Local Development
+- **Standalone Operation**: Works independently of the main bot. All logic and data are contained within.
+- **Reporting Source of Truth**: Calculates revenue, profit, and margins locally.
+- **Auto-Sync**: Automatically fetches product prices from Google Sheets on every session open.
+- **Telegram Logging**: Sends real-time logs and daily financial summaries to a Telegram topic.
+- **Cross-Platform**: Works as a web app on any device or as a Telegram Mini App.
 
-```bash
-python -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
+---
 
-# Start PostgreSQL (Docker or local)
-docker run -d --name pos_db -e POSTGRES_DB=pos_db -e POSTGRES_USER=pos_user -e POSTGRES_PASSWORD=pos_password -p 5433:5432 postgres:16-alpine
+## ⚙️ Configuration (The `.env` file)
 
-cp .env.example .env
-# Edit .env
+| Variable | Description |
+|----------|-------------|
+| `API_KEY` | Secret key for admin access (e.g., `best_pos_secret_2024`) |
+| `BOT_TOKENS` | Tokens of bots that can open this POS as a Mini App |
+| `STORE_SPREADSHEET_ID` | The ID of your Google Sheet price list |
+| `PIER_NAME` | Name of the pier (e.g., `Yamu`) |
 
-python main.py
-```
+---
 
-## API Documentation
+## 🛠 Management CLI
 
-Once running, visit **http://localhost:8000/docs** for interactive Swagger UI.
+Use `./manage.sh` for all operations:
+- `./manage.sh start` — Build and start containers in background
+- `./manage.sh stop` — Stop all services
+- `./manage.sh logs` — View real-time logs (useful for debugging sync/telegram)
+- `./manage.sh status` — Check if the service and database are running
 
-### Key Endpoints
+---
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/v1/products` | List active products |
-| POST | `/api/v1/products/sync` | Sync from Google Sheets |
-| GET | `/api/v1/sessions/active?pier=Yamu` | Get active session |
-| POST | `/api/v1/sessions/open` | Open cash session |
-| POST | `/api/v1/sessions/close` | Close session |
-| POST | `/api/v1/sales` | Record a sale |
-| GET | `/api/v1/sales/daily-report?pier=Yamu` | Daily report |
-| POST | `/api/v1/checkout` | Tourist order + NSPK payment |
-| GET | `/health` | Health check |
+## 📁 Project Structure
 
-### Authentication
+- `api/` — Web endpoints (Sales, Sessions, Checkout)
+- `models/` — Database schema (PostgreSQL + SQLAlchemy)
+- `services/` — Business logic (Reporting, NSPK Payments, Sheets Sync)
+- `web/static/` — Frontend (HTML/JS/CSS)
+- `data/` — Local logs and database volume persistence
 
-- **Bot integration**: Pass `X-API-Key: <your-key>` header
-- **Mini App**: Telegram `initData` validated against configured bot tokens
-- **URL token**: `?token=<hmac-token>` for backward compatibility
+---
 
-## Integration with Telegram Bot
+## 🔐 Security
 
-Add to the bot's `.env`:
-```
-POS_API_URL=http://localhost:8000
-POS_API_KEY=your-secret-api-key-change-me
-```
+- **Mini App**: Uses HMAC signature verification for secure Telegram integration.
+- **Admin**: Uses `X-API-Key` for service-to-service communication.
+- **Settings**: Dynamic settings (like Telegram Chat IDs) are stored in the database and can be managed via the "Settings" tab in the UI.
 
-The bot uses `services/pos_client.py` to communicate with this service.
+---
 
-## Architecture
-
-```
-Best_pos_service/
-├── main.py              # FastAPI application
-├── config.py            # Environment-based configuration
-├── api/                 # REST API endpoints
-│   ├── auth.py          # Authentication (API Key + Telegram)
-│   ├── products.py      # Product management
-│   ├── sessions.py      # Cash sessions
-│   ├── sales.py         # Sales & reports
-│   ├── checkout.py      # Tourist checkout + NSPK
-│   └── health.py        # Health check
-├── models/              # Database layer
-│   ├── database.py      # Async engine + sessions
-│   └── schemas.py       # SQLAlchemy models
-├── services/            # Business logic
-│   ├── cash_service.py  # Core POS operations
-│   ├── payment_service.py # NSPK (async)
-│   ├── sheets_sync.py   # Google Sheets sync
-│   └── time_utils.py    # Phuket timezone
-└── web/static/          # Frontend (POS + Tourist Shop)
-```
+## 📄 License & Support
+Developed for **Best Sea** operations. For maintenance, check the logs in `data/pos.log` or via `./manage.sh logs`.
