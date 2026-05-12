@@ -121,6 +121,18 @@ async def record_sale(
         raise HTTPException(status_code=500, detail=f"Sale recording failed: {str(e)}")
 
 
+@router.get("/pending")
+async def get_pending_sales(
+    pier: str = Query(..., description="Pier name"),
+    user: dict = Depends(get_current_user),
+):
+    """
+    Returns list of pending online sales for a pier.
+    """
+    sales = await cash_service.get_pending_sales(pier)
+    return {"status": "success", "data": sales}
+
+
 @router.get("/daily-report")
 async def daily_report(
     pier: str = Query(..., description="Pier name"),

@@ -17,7 +17,7 @@ const tg = isTelegram ? window.Telegram.WebApp : {
 // Global State
 let currentPier = new URLSearchParams(window.location.search).get('pier');
 const authToken = new URLSearchParams(window.location.search).get('token');
-const apiKey = new URLSearchParams(window.location.search).get('api_key');
+let apiKey = new URLSearchParams(window.location.search).get('api_key') || localStorage.getItem('best_pos_api_key');
 let currentSession = null;
 let allProducts = [];
 let cart = [];
@@ -45,6 +45,9 @@ async function initializeApp() {
         ]);
     } catch (e) {
         console.error('Init failed:', e);
+        if (e.message.includes('401') || e.message.includes('403') || e.message.includes('Authentication')) {
+            showLogin();
+        }
     }
 
     // Hide loader
@@ -54,6 +57,48 @@ async function initializeApp() {
         setTimeout(() => loader.style.display = 'none', 400);
     }
 }
+
+// ===== AUTH =====
+window.showLogin = function() {
+    document.getElementById('auth-overlay').classList.add('active');
+    document.getElementById('auth-api-key').focus();
+};
+
+window.performLogin = async function() {
+    const keyInput = document.getElementById('auth-api-key');
+    const val = keyInput.value.trim();
+    if (!val) return alert('Please enter API key');
+
+    // Test the key
+    apiKey = val;
+    try {
+        const btn = document.getElementById('auth-login-btn');
+        btn.textContent = 'Verifying...';
+        btn.disabled = true;
+
+        await apiRequest('/api/v1/sessions/active', { data: { pier: currentPier || 'test' } });
+        
+        // Success
+        localStorage.setItem('best_pos_api_key', val);
+        document.getElementById('auth-overlay').classList.remove('active');
+        showSuccess('Authenticated!');
+        await initializeApp();
+    } catch (e) {
+        alert('Invalid API key: ' + e.message);
+        apiKey = localStorage.getItem('best_pos_api_key'); // Revert
+    } finally {
+        const btn = document.getElementById('auth-login-btn');
+        btn.textContent = '🚀 Authorize Access';
+        btn.disabled = false;
+    }
+};
+
+window.logout = function() {
+    if (confirm('Are you sure you want to log out? This will clear your saved API key.')) {
+        localStorage.removeItem('best_pos_api_key');
+        location.reload();
+    }
+};
 
 // ===== API =====
 async function apiRequest(endpoint, options = {}) {
@@ -66,7 +111,7 @@ async function apiRequest(endpoint, options = {}) {
     }
 
     let url;
-    if (options.method === 'POST' || options.method === 'DELETE') {
+    if (options.method === 'POST' || options.method === 'PUT' || options.method === 'DELETE') {
         const body = options.body || {};
         if (initData) body.initData = initData;
         if (authToken) body.token = authToken;
@@ -88,7 +133,12 @@ async function apiRequest(endpoint, options = {}) {
 
     const resp = await fetch(url, options);
     const json = await resp.json();
-    if (!resp.ok) throw new Error(json.detail || json.message || `HTTP ${resp.status}`);
+    if (!resp.ok) {
+        if (resp.status === 401 || resp.status === 403) {
+            showLogin();
+        }
+        throw new Error(json.detail || json.message || `HTTP ${resp.status}`);
+    }
     return json;
 }
 

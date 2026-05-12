@@ -9,7 +9,7 @@ from sqlalchemy.orm import selectinload
 from loguru import logger
 
 from models import AsyncSessionLocal, Product, CashSession, Sale, SaleItem
-from services.time_utils import get_phuket_now, get_phuket_today, get_day_bounds
+from services.time_utils import get_phuket_now, get_phuket_today, get_day_bounds, to_phuket_time
 
 
 class CashService:
@@ -210,6 +210,18 @@ class CashService:
                 return sale
             return None
 
+    async def get_pending_sales(self, pier: str) -> list[Sale]:
+        """Returns list of pending online sales for a pier."""
+        async with AsyncSessionLocal() as session:
+            query = (
+                select(Sale)
+                .where(Sale.pier == pier, Sale.status == "pending")
+                .options(selectinload(Sale.items))
+                .order_by(Sale.created_at.desc())
+            )
+            result = await session.execute(query)
+            return list(result.scalars().all())
+
     # ── Reports ───────────────────────────────────────────────────────────
 
     async def get_session_report(self, session_id: int) -> dict:
@@ -327,7 +339,7 @@ class CashService:
 
             report["transactions"].append({
                 "sale_id": sale.id,
-                "time": sale.created_at.strftime("%H:%M") if sale.created_at else "?",
+                "time": to_phuket_time(sale.created_at).strftime("%H:%M") if sale.created_at else "?",
                 "payment": sale.payment_type,
                 "amount": sale.total_amount,
                 "items": tx_items,

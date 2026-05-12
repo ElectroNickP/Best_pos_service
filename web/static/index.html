@@ -207,6 +207,13 @@
                             </div>
                             <button class="maint-btn" onclick="checkHealth()">🏥 Check Health</button>
                         </div>
+                        <div class="maint-item">
+                            <div class="maint-info">
+                                <div class="maint-title">Authorization</div>
+                                <div class="maint-desc">Clear saved API key and log out from this device.</div>
+                            </div>
+                            <button class="maint-btn" style="color:var(--red); border-color:#FECACA;" onclick="logout()">🔓 Logout</button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -259,6 +266,27 @@
                 <button class="modal-done-btn" style="flex:1; background:var(--bg-secondary); color:var(--text-primary); border:1px solid var(--border-color);" onclick="closePaymentModal('cancel')">Cancel Sale</button>
                 <button class="modal-done-btn" style="flex:1;" onclick="closePaymentModal('paid')">Payment Done</button>
             </div>
+        </div>
+    </div>
+
+    <!-- AUTH OVERLAY (Login) -->
+    <div id="auth-overlay" class="modal-overlay">
+        <div class="modal-content">
+            <div style="text-align: center; margin-bottom: 24px;">
+                <div style="font-size: 40px; margin-bottom: 16px;">🔐</div>
+                <h3 style="font-weight: 800; font-size: 20px;">Authentication Required</h3>
+                <p style="font-size: 13px; color: var(--text-secondary); margin-top: 8px;">
+                    Please enter your API Secret Key to access the POS.
+                </p>
+            </div>
+            <div style="margin-bottom: 20px;">
+                <input type="password" id="auth-api-key" placeholder="Enter API Key" 
+                       style="width: 100%; padding: 14px; border-radius: 12px; border: 2px solid var(--border); font-size: 16px; text-align: center; outline: none; transition: border-color 0.2s;">
+            </div>
+            <button id="auth-login-btn" class="modal-done-btn" style="width: 100%;" onclick="performLogin()">🚀 Authorize Access</button>
+            <p style="margin-top: 16px; font-size: 11px; color: var(--text-muted);">
+                The key will be saved locally for future sessions on this device.
+            </p>
         </div>
     </div>
 
