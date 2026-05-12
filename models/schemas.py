@@ -64,6 +64,8 @@ class Sale(Base):
     total_amount = Column(Float, default=0)
     payment_type = Column(String(20), default="cash")  # "cash" | "online"
     status = Column(String(20), default="completed")  # "completed" | "cancelled"
+    payment_reference = Column(String(200), nullable=True, index=True)
+    payment_link = Column(String(500), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     session = relationship("CashSession", back_populates="sales")
@@ -123,3 +125,14 @@ class TouristOrderItem(Base):
     total_price = Column(Float, nullable=False)
 
     order = relationship("TouristOrder", back_populates="items")
+
+
+class POSSetting(Base):
+    """Dynamic key-value settings for the POS service.
+    Allows runtime configuration changes without service restart."""
+    __tablename__ = "pos_settings"
+
+    key = Column(String(100), primary_key=True)
+    value = Column(Text, nullable=False, default="")
+    description = Column(String(500), nullable=True)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

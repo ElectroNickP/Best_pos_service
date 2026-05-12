@@ -145,6 +145,9 @@ class CashService:
         manager_id: int,
         items_data: list[dict],
         payment_type: str = "cash",
+        payment_reference: str | None = None,
+        payment_link: str | None = None,
+        status: str = "completed",
     ) -> Sale:
         """
         Records a sale with multiple items.
@@ -159,7 +162,10 @@ class CashService:
                 manager_id=manager_id,
                 total_amount=total_amount,
                 payment_type=payment_type,
-                status="completed",
+                status=status,
+                payment_reference=payment_reference,
+
+                payment_link=payment_link,
             )
             session.add(new_sale)
             await session.flush()
@@ -184,12 +190,25 @@ class CashService:
         async with AsyncSessionLocal() as session:
             result = await session.execute(select(Sale).where(Sale.id == sale_id))
             sale = result.scalars().first()
-            if sale and sale.status == "completed":
+            if sale and sale.status in ("completed", "pending"):
                 sale.status = "cancelled"
                 await session.commit()
                 logger.info(f"Sale #{sale_id} cancelled.")
                 return True
             return False
+
+    async def complete_sale(self, sale_id: int) -> Sale | None:
+        """Manually marks a pending sale as completed."""
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(select(Sale).where(Sale.id == sale_id).options(selectinload(Sale.items)))
+            sale = result.scalars().first()
+            if sale and sale.status == "pending":
+                sale.status = "completed"
+                await session.commit()
+                await session.refresh(sale)
+                logger.info(f"Sale #{sale_id} manually marked as completed.")
+                return sale
+            return None
 
     # ── Reports ───────────────────────────────────────────────────────────
 

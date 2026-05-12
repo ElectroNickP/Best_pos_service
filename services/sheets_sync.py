@@ -9,6 +9,7 @@ from loguru import logger
 
 from config import config
 from services.cash_service import cash_service
+from services.settings_service import settings_service
 
 
 def _find_sa_file() -> str | None:
@@ -21,7 +22,7 @@ def _find_sa_file() -> str | None:
     return json_files[0] if json_files else None
 
 
-def _fetch_products_from_sheets() -> list[dict]:
+def _fetch_products_from_sheets(spreadsheet_id: str | None = None) -> list[dict]:
     """
     Synchronous function that reads products from Google Sheets.
     Called via asyncio.to_thread() to avoid blocking the event loop.
@@ -33,13 +34,15 @@ def _fetch_products_from_sheets() -> list[dict]:
         logger.error("No Google Service Account JSON found.")
         return []
 
-    if not config.STORE_SPREADSHEET_ID:
-        logger.warning("STORE_SPREADSHEET_ID not configured, skipping sync.")
+    # Use provided spreadsheet_id or fallback to config
+    sid = spreadsheet_id or config.STORE_SPREADSHEET_ID
+    if not sid:
+        logger.warning("No Store Spreadsheet ID provided or configured.")
         return []
 
     try:
         gc = gspread.service_account(filename=sa_file)
-        spreadsheet = gc.open_by_key(config.STORE_SPREADSHEET_ID)
+        spreadsheet = gc.open_by_key(sid)
 
         # Find the "Store Price List" sheet (try common names)
         sheet = None
@@ -152,7 +155,10 @@ async def sync_products_from_sheets() -> int:
     Async wrapper: fetches products from Google Sheets and upserts them into the DB.
     Returns the number of products synced.
     """
-    products_data = await asyncio.to_thread(_fetch_products_from_sheets)
+    # Try to get dynamic spreadsheet ID from DB settings first
+    spreadsheet_id = await settings_service.get("STORE_SPREADSHEET_ID")
+    
+    products_data = await asyncio.to_thread(_fetch_products_from_sheets, spreadsheet_id)
     if not products_data:
         logger.warning("No products fetched from Google Sheets.")
         return 0

@@ -4,8 +4,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 
 from models.database import get_db
-from models.schemas import TouristOrder
-from services.bot_client import notify_bot_of_payment
+from models.schemas import TouristOrder, Sale
+from services.bot_client import notify_bot_of_payment, send_telegram_log
 
 router = APIRouter(prefix="/api/webhooks", tags=["webhooks"])
 
@@ -31,8 +31,37 @@ async def nspk_callback(request: Request, db: AsyncSession = Depends(get_db)):
         order = result.scalar_one_or_none()
         
         if not order:
-            logger.warning(f"⚠️ Order not found for reference: {ref}")
-            return {"status": "error", "message": "order_not_found"}
+            # Fallback to check if it's a POS Sale
+            stmt_sale = select(Sale).where(Sale.payment_reference == ref)
+            result_sale = await db.execute(stmt_sale)
+            sale = result_sale.scalar_one_or_none()
+            
+            if not sale:
+                logger.warning(f"⚠️ Order/Sale not found for reference: {ref}")
+                return {"status": "error", "message": "not_found"}
+                
+            if sale.status == "completed":
+                return {"status": "ok", "message": "already_paid"}
+                
+            sale.status = "completed"
+            await db.commit()
+            logger.info(f"💰 POS Sale {sale.id} marked as PAID via webhook.")
+            
+            # Send Telegram Log for POS Sale
+            try:
+                items_text = "\n".join([f"• {i.product_name} x{i.quantity} ({i.price_per_unit} ฿)" for i in sale.items])
+                msg = f"<b>🧾 New POS Sale</b>\n"
+                msg += f"📍 Pier: {sale.pier}\n"
+                msg += f"💰 Amount: {sale.total_amount} ฿\n"
+                msg += f"💳 Payment: 💳 Online (NSPK)\n\n"
+                msg += "<b>Items:</b>\n"
+                msg += items_text
+                
+                await send_telegram_log(msg)
+            except Exception as e:
+                logger.error(f"Error sending telegram log for POS sale: {e}")
+                
+            return {"status": "ok"}
 
         if order.status == "paid":
             return {"status": "ok", "message": "already_paid"}
@@ -42,7 +71,7 @@ async def nspk_callback(request: Request, db: AsyncSession = Depends(get_db)):
         await db.commit()
         logger.info(f"💰 Order {order.id} marked as PAID.")
 
-        # Notify the Bot
+        # Notify the Bot via Webhook
         order_dict = {
             "id": order.id,
             "total_thb": float(order.total_amount),
@@ -55,6 +84,22 @@ async def nspk_callback(request: Request, db: AsyncSession = Depends(get_db)):
             ]
         }
         await notify_bot_of_payment(order_dict)
+
+        # Send direct Telegram Log for Tourist Order
+        try:
+            items_text = "\n".join([f"• {i.product_name} x{i.quantity}" for i in order.items])
+            msg = f"<b>✅ Online Payment (Tourist Shop)</b>\n"
+            msg += f"🛒 Order #{order.id}\n"
+            msg += f"📍 Pier: {order.pier}\n"
+            msg += f"💰 Amount: {order.total_amount} ฿"
+            if order.total_rub:
+                msg += f" ({order.total_rub} ₽)"
+            msg += "\n\n<b>Items:</b>\n"
+            msg += items_text
+            
+            await send_telegram_log(msg)
+        except Exception as e:
+            logger.error(f"Error sending telegram log for tourist order: {e}")
 
         return {"status": "ok"}
         

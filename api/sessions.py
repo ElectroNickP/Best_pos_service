@@ -87,6 +87,23 @@ async def open_session(
         manager_name=manager_name,
     )
 
+    # Send Telegram Log
+    try:
+        from services.bot_client import send_telegram_log
+        from services.time_utils import get_phuket_now
+        now = get_phuket_now().strftime("%H:%M")
+        msg = f"<b>🟢 SESSION OPENED</b>\n"
+        msg += f"━━━━━━━━━━━━━━━━━━\n"
+        msg += f"📍 <b>Pier:</b> {req.pier}\n"
+        msg += f"👤 <b>Cashier:</b> {manager_name or manager_id}\n"
+        msg += f"⏰ <b>Time:</b> {now}\n"
+        msg += f"📅 <b>Date:</b> {get_phuket_now().strftime('%d.%m.%Y')}\n"
+        msg += f"━━━━━━━━━━━━━━━━━━\n"
+        msg += f"🚀 <i>Session started successfully. Have a great shift!</i>"
+        await send_telegram_log(msg)
+    except Exception as e:
+        logger.error(f"Error sending session open telegram log: {e}")
+
     return {
         "status": "success",
         "data": {
@@ -115,6 +132,35 @@ async def close_session(
         daily_report = await cash_service.get_daily_report(req.pier, today)
 
     if success:
+        # Send Telegram Log with Summary
+        try:
+            from services.bot_client import send_telegram_log
+            from services.time_utils import get_phuket_now
+            now = get_phuket_now().strftime("%H:%M")
+            
+            msg = f"<b>🏁 SESSION CLOSED</b>\n"
+            msg += f"━━━━━━━━━━━━━━━━━━\n"
+            msg += f"📍 <b>Pier:</b> {req.pier or 'Unknown'}\n"
+            msg += f"⏰ <b>Closing Time:</b> {now}\n"
+            msg += f"📅 <b>Date:</b> {daily_report['date'] if daily_report else '---'}\n"
+            msg += f"━━━━━━━━━━━━━━━━━━\n\n"
+            
+            if daily_report:
+                msg += f"<b>📊 DAILY SUMMARY:</b>\n\n"
+                msg += f"💰 <b>TOTAL REVENUE:</b> <code>{daily_report['total_amount']:,.0f} ฿</code>\n"
+                msg += f"  💵 Cash: <code>{daily_report['cash_amount']:,.0f} ฿</code>\n"
+                msg += f"  💳 Online (SBP): <code>{daily_report['online_amount']:,.0f} ฿</code>\n\n"
+                
+                msg += f"📈 <b>NET PROFIT:</b> <code>{daily_report['total_profit']:,.0f} ฿</code>\n"
+                msg += f"🛍 <b>SALES COUNT:</b> {daily_report['sales_count']}\n"
+                msg += f"💎 <b>MARGIN:</b> {daily_report['margin_pct']}%\n"
+                msg += f"━━━━━━━━━━━━━━━━━━\n"
+                msg += f"✅ <i>Session closed. All data synchronized.</i>"
+            
+            await send_telegram_log(msg)
+        except Exception as e:
+            logger.error(f"Error sending session close telegram log: {e}")
+
         return {"status": "success", "report": daily_report}
     else:
         raise HTTPException(status_code=404, detail="Session not found or already closed")

@@ -20,6 +20,26 @@ from loguru import logger
 from config import config
 from models.database import init_db, close_db
 
+# ── Logging ───────────────────────────────────────────────────────────────
+import sys
+
+logger.remove()
+logger.add(
+    sys.stderr,
+    format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
+    level="INFO",
+)
+logger.add(
+    "data/pos.log",
+    rotation="10 MB",
+    retention="30 days",
+    compression="gz",
+    level="DEBUG",
+    enqueue=True,
+    backtrace=True,
+    diagnose=True,
+)
+
 # ── Lifespan ──────────────────────────────────────────────────────────────
 
 @asynccontextmanager
@@ -29,6 +49,14 @@ async def lifespan(app: FastAPI):
     logger.info(f"🚀 POS Service starting... (Pier: {config.PIER_NAME})")
     await init_db()
     logger.info("✅ Database initialized.")
+
+    # Seed default settings
+    try:
+        from services.settings_service import settings_service
+        await settings_service.seed_defaults()
+        logger.info("⚙️ Settings seeded.")
+    except Exception as e:
+        logger.warning(f"⚠️ Settings seed failed (non-critical): {e}")
 
     # Initial product sync (non-blocking, failure is OK)
     try:
@@ -72,6 +100,7 @@ from api.sales import router as sales_router
 from api.checkout import router as checkout_router
 from api.webhooks import router as webhooks_router
 from api.health import router as health_router
+from api.settings import router as settings_router
 
 app.include_router(products_router)
 app.include_router(sessions_router)
@@ -79,6 +108,7 @@ app.include_router(sales_router)
 app.include_router(checkout_router)
 app.include_router(webhooks_router)
 app.include_router(health_router)
+app.include_router(settings_router)
 
 # ── Static Files & Frontend ─────────────────────────────────────────────
 

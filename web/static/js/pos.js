@@ -1,11 +1,18 @@
 /* ============================================
-   POS v1.0 — Standalone Point-of-Sale
+   POS v2.0 — Standalone Point-of-Sale
    Works both as Telegram Mini App and browser app
    ============================================ */
 
 // Detect Telegram context
-const isTelegram = !!(window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData);
-const tg = isTelegram ? window.Telegram.WebApp : { ready(){}, expand(){}, HapticFeedback: { selectionChanged(){}, impactOccurred(){}, notificationOccurred(){} }, showConfirm(msg,cb){ cb(confirm(msg)); }, initData: '' };
+const isTelegram = !!(window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData && window.Telegram.WebApp.initData.length > 0);
+const tg = isTelegram ? window.Telegram.WebApp : { 
+    ready(){}, 
+    expand(){}, 
+    HapticFeedback: { selectionChanged(){}, impactOccurred(){}, notificationOccurred(){} }, 
+    showConfirm(msg,cb){ cb(confirm(msg)); }, 
+    showAlert(msg){ alert(msg); },
+    initData: '' 
+};
 
 // Global State
 let currentPier = new URLSearchParams(window.location.search).get('pier');
@@ -15,6 +22,8 @@ let currentSession = null;
 let allProducts = [];
 let cart = [];
 let activeCategory = 'all';
+let searchQuery = '';
+let pendingSaleId = null;
 
 // ===== INIT =====
 async function initializeApp() {
@@ -32,6 +41,7 @@ async function initializeApp() {
         await Promise.all([
             refreshSessionStatus(),
             loadProducts(),
+            loadPendingCount(),
         ]);
     } catch (e) {
         console.error('Init failed:', e);
@@ -56,7 +66,7 @@ async function apiRequest(endpoint, options = {}) {
     }
 
     let url;
-    if (options.method === 'POST') {
+    if (options.method === 'POST' || options.method === 'DELETE') {
         const body = options.body || {};
         if (initData) body.initData = initData;
         if (authToken) body.token = authToken;
@@ -91,6 +101,7 @@ window.switchTab = function(name) {
     document.getElementById(`panel-${name}`).classList.add('active');
     
     if (name === 'report') loadReport();
+    if (name === 'settings') loadSettings();
     try { tg.HapticFeedback.selectionChanged(); } catch(e) {}
 };
 
@@ -103,6 +114,7 @@ async function refreshSessionStatus() {
         
         const data = result.data;
         currentSession = data.active ? data : null;
+        console.log('Session status updated. Active:', !!currentSession, currentSession);
         
         const badge = document.getElementById('session-badge');
         const openBtn = document.getElementById('session-controls');
@@ -121,9 +133,19 @@ async function refreshSessionStatus() {
             badge.classList.add('closed');
             openBtn.style.display = 'block';
             activeCtrl.style.display = 'none';
-            posTabBtn.style.opacity = '0.4';
-            posTabBtn.style.pointerEvents = 'none';
-            switchTab('pos');
+            // Important: don't disable the POS tab button entirely if we are ON IT
+            posTabBtn.style.opacity = '1';
+            posTabBtn.style.pointerEvents = 'auto';
+        }
+
+        // Attach event listeners manually for robustness
+        const openBtnEl = document.getElementById('session-open-btn');
+        const closeBtnEl = document.getElementById('session-close-btn');
+        if (openBtnEl) {
+            openBtnEl.onclick = (e) => { e.preventDefault(); console.log('Open clicked via listener'); toggleSession(); };
+        }
+        if (closeBtnEl) {
+            closeBtnEl.onclick = (e) => { e.preventDefault(); console.log('Close clicked via listener'); toggleSession(); };
         }
 
         // Update KPIs
@@ -140,22 +162,41 @@ async function refreshSessionStatus() {
 }
 
 window.toggleSession = async function() {
+    console.log('toggleSession triggered. Current session:', currentSession);
     const action = currentSession ? 'close' : 'open';
     const msg = action === 'close'
         ? 'Close shift and finalize report?'
         : 'Open a new session for this pier?';
 
     const proceed = await confirmDialog(msg);
+    console.log('Confirmation proceed:', proceed);
     if (!proceed) return;
 
     try {
         const body = { pier: currentPier };
-        if (action === 'close') body.session_id = currentSession.id;
+        if (action === 'close') {
+            body.session_id = currentSession.id;
+        } else {
+            // Prompt for cashier name
+            const cashierName = prompt('Please enter cashier name:');
+            if (cashierName) body.manager_name = cashierName;
+        }
         
+        console.log(`Sending ${action} session request...`);
         const result = await apiRequest(`/api/v1/sessions/${action}`, { method: 'POST', body });
+        console.log('Session result:', result);
+
         if (result.status === 'success') {
             showSuccess(action === 'open' ? 'Session Opened!' : 'Session Closed!');
             try { tg.HapticFeedback.notificationOccurred('success'); } catch(e) {}
+            
+            // Critical: reset session local state
+            if (action === 'close') {
+                currentSession = null;
+                cart = [];
+                renderCart();
+            }
+            
             await refreshSessionStatus();
             if (action === 'open') {
                 await loadProducts();
@@ -163,6 +204,7 @@ window.toggleSession = async function() {
             }
         }
     } catch (e) {
+        console.error('Session error:', e);
         alert('Error: ' + e.message);
     }
 };
@@ -221,17 +263,30 @@ window.filterCategory = function(cat, el) {
     try { tg.HapticFeedback.selectionChanged(); } catch(e) {}
 };
 
+// Search filter
+window.filterProducts = function() {
+    const input = document.getElementById('product-search');
+    searchQuery = (input ? input.value : '').toLowerCase().trim();
+    renderProducts();
+};
+
 function renderProducts() {
     const grid = document.getElementById('product-grid');
     grid.innerHTML = '';
 
-    const filtered = activeCategory === 'all'
+    let filtered = activeCategory === 'all'
         ? allProducts
         : allProducts.filter(p => (p.category || 'Other') === activeCategory);
 
+    // Apply search filter
+    if (searchQuery) {
+        filtered = filtered.filter(p => p.name.toLowerCase().includes(searchQuery));
+    }
+
     filtered.forEach(p => {
+        const isFree = p.sale_price <= 0;
         const card = document.createElement('div');
-        card.className = 'product-card';
+        card.className = 'product-card' + (isFree ? ' free-item' : '');
         card.id = `prod-${p.id}`;
         
         const accentColor = getCatColor(p.category);
@@ -241,7 +296,8 @@ function renderProducts() {
             <div class="cat-accent" style="background:${accentColor}"></div>
             <img src="${icon}" class="p-icon" alt="">
             <div class="p-name">${p.name}</div>
-            <div class="p-price">${p.sale_price}฿</div>
+            <div class="p-price">${isFree ? 'FREE' : p.sale_price + '฿'}</div>
+            ${isFree ? '<div class="free-badge">Cash only</div>' : ''}
         `;
         card.onclick = () => addToCart(p);
         grid.appendChild(card);
@@ -290,6 +346,7 @@ function addToCart(product) {
 function renderCart() {
     const total = cart.reduce((s, i) => s + i.sale_price * i.quantity, 0);
     const hasItems = cart.length > 0;
+    const hasFreeOnly = hasItems && total <= 0;
 
     // Desktop cart sidebar
     const cartEl = document.getElementById('cart-items');
@@ -317,7 +374,8 @@ function renderCart() {
 
     // Enable/disable pay buttons
     document.getElementById('btn-pay-cash').disabled = !hasItems;
-    document.getElementById('btn-pay-online').disabled = !hasItems;
+    // Disable Online if cart is empty OR total is 0 (free items only)
+    document.getElementById('btn-pay-online').disabled = !hasItems || hasFreeOnly;
 
     // Mobile cart bar
     const mobileBar = document.getElementById('mobile-cart-bar');
@@ -345,6 +403,8 @@ window.clearCart = function() {
 window.openMobileCart = function() {
     const sheet = document.getElementById('sheet-overlay');
     const mobileItems = document.getElementById('mobile-cart-items');
+    const total = cart.reduce((s, i) => s + i.sale_price * i.quantity, 0);
+    const hasFreeOnly = cart.length > 0 && total <= 0;
     
     mobileItems.innerHTML = cart.map(item => `
         <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-bottom:1px solid #f0f0f0;">
@@ -360,8 +420,11 @@ window.openMobileCart = function() {
         </div>
     `).join('');
 
-    document.getElementById('mobile-cart-total').textContent = 
-        `${cart.reduce((s, i) => s + i.sale_price * i.quantity, 0).toLocaleString()}฿`;
+    document.getElementById('mobile-cart-total').textContent = `${total.toLocaleString()}฿`;
+    
+    // Disable online button for free-only carts on mobile too
+    const mobileOnlineBtn = document.querySelector('.sheet-content .online-btn');
+    if (mobileOnlineBtn) mobileOnlineBtn.disabled = hasFreeOnly;
     
     sheet.classList.add('active');
 };
@@ -369,6 +432,27 @@ window.openMobileCart = function() {
 window.closeMobileCart = function() {
     document.getElementById('sheet-overlay').classList.remove('active');
 };
+
+// ===== PENDING SALES =====
+async function loadPendingCount() {
+    try {
+        const result = await apiRequest('/api/v1/sales/pending', { data: { pier: currentPier } });
+        if (result.status === 'success') {
+            const count = result.data.length;
+            const wrap = document.getElementById('kpi-pending-wrap');
+            const val = document.getElementById('kpi-pending');
+            if (count > 0) {
+                wrap.style.display = '';
+                val.textContent = count;
+            } else {
+                wrap.style.display = 'none';
+            }
+        }
+    } catch (e) {
+        // Endpoint may not exist yet — silently ignore
+        console.log('Pending count not available:', e.message);
+    }
+}
 
 // ===== PAYMENT =====
 window.processSale = async function(type) {
@@ -385,8 +469,17 @@ window.processSale = async function(type) {
             }
         });
         if (result.status === 'success') {
-            showSuccess('Sale Completed!');
-            try { tg.HapticFeedback.notificationOccurred('success'); } catch(e) {}
+            if (type === 'online') {
+                if (result.data && result.data.pay_url) {
+                    showPaymentModal(result.data);
+                } else {
+                    showSuccess('Sale Completed (No QR)');
+                    try { tg.HapticFeedback.notificationOccurred('success'); } catch(e) {}
+                }
+            } else {
+                showSuccess('Sale Completed!');
+                try { tg.HapticFeedback.notificationOccurred('success'); } catch(e) {}
+            }
             cart = [];
             renderCart();
             closeMobileCart();
@@ -394,6 +487,84 @@ window.processSale = async function(type) {
         }
     } catch (e) {
         alert('Payment error: ' + e.message);
+    }
+};
+
+// ===== ONLINE PAYMENT MODAL =====
+function showPaymentModal(data) {
+    pendingSaleId = data.sale_id;
+    const modal = document.getElementById('payment-modal');
+    const canvas = document.getElementById('qr-canvas');
+    
+    document.getElementById('pay-amount-rub').textContent = `${Math.round(data.total_rub).toLocaleString()} ₽`;
+    document.getElementById('pay-rate').textContent = `Rate: 1 THB = ${data.rate} RUB`;
+
+    QRCode.toCanvas(canvas, data.pay_url, {
+        width: 200,
+        margin: 0,
+        color: {
+            dark: '#0A1628',
+            light: '#f8fafc'
+        }
+    }, function (error) {
+        if (error) console.error(error);
+        modal.classList.add('active');
+        try { tg.HapticFeedback.notificationOccurred('success'); } catch(e) {}
+    });
+}
+
+window.closePaymentModal = async function(action) {
+    const modal = document.getElementById('payment-modal');
+    console.log(`closePaymentModal triggered with action: ${action}, pendingSaleId: ${pendingSaleId}`);
+    
+    if (action === 'close') {
+        modal.classList.remove('active');
+        return;
+    }
+
+    if (action === 'cancel' && pendingSaleId) {
+        if (await confirmDialog("Are you sure you want to cancel this sale?")) {
+            try {
+                console.log(`Cancelling sale ${pendingSaleId}...`);
+                await apiRequest(`/api/v1/sales/${pendingSaleId}`, { method: 'DELETE' });
+                modal.classList.remove('active');
+                showSuccess('Sale Cancelled');
+                try { tg.HapticFeedback.notificationOccurred('warning'); } catch(e) {}
+                await refreshSessionStatus();
+                await loadPendingCount();
+            } catch (e) {
+                console.error('Cancel error:', e);
+                alert('Failed to cancel sale: ' + e.message);
+            }
+        }
+    } else if (action === 'paid' && pendingSaleId) {
+        try {
+            await apiRequest(`/api/v1/sales/${pendingSaleId}/complete`, { method: 'POST' });
+            modal.classList.remove('active');
+            showSuccess('Sale Recorded!');
+            try { tg.HapticFeedback.notificationOccurred('success'); } catch(e) {}
+            await refreshSessionStatus();
+            await loadPendingCount();
+        } catch (e) {
+            alert('Failed to confirm sale: ' + e.message);
+        }
+    } else {
+        // X-button without action — treat as cancel
+        if (pendingSaleId) {
+            if (confirm("Cancel this online payment?")) {
+                try {
+                    await apiRequest(`/api/v1/sales/${pendingSaleId}`, { method: 'DELETE' });
+                    modal.classList.remove('active');
+                    showSuccess('Sale Cancelled');
+                    await refreshSessionStatus();
+                    await loadPendingCount();
+                } catch (e) {
+                    alert('Failed to cancel: ' + e.message);
+                }
+            }
+        } else {
+            modal.classList.remove('active');
+        }
     }
 };
 
@@ -406,7 +577,7 @@ window.syncData = async function() {
         await apiRequest('/api/v1/products/sync', { method: 'POST' });
         showSuccess('Synced!');
         try { tg.HapticFeedback.notificationOccurred('success'); } catch(e) {}
-        await Promise.all([loadProducts(), refreshSessionStatus()]);
+        await Promise.all([loadProducts(), refreshSessionStatus(), loadPendingCount()]);
     } catch (e) {
         alert('Sync error: ' + e.message);
     } finally {
@@ -424,9 +595,20 @@ function showSuccess(msg) {
 
 function confirmDialog(msg) {
     return new Promise(resolve => {
+        console.log('confirmDialog requested:', msg, 'isTelegram:', isTelegram);
+        // Robust fallback: only use TG if initData is present and showConfirm exists
+        if (!isTelegram || !tg.showConfirm) {
+            console.log('Using window.confirm fallback');
+            resolve(confirm(msg));
+            return;
+        }
         try {
-            tg.showConfirm(msg, ok => resolve(ok));
+            tg.showConfirm(msg, ok => {
+                console.log('TG showConfirm callback ok:', ok);
+                resolve(ok);
+            });
         } catch(e) {
+            console.warn('tg.showConfirm failed, falling back to window.confirm', e);
             resolve(confirm(msg));
         }
     });
@@ -505,6 +687,87 @@ function renderReport(r) {
         }).join('');
     }
 }
+
+// ===== SETTINGS =====
+async function loadSettings() {
+    const grid = document.getElementById('settings-grid');
+    grid.innerHTML = '<div class="loader-spinner" style="margin: 20px auto;"></div>';
+
+    try {
+        const result = await apiRequest('/api/v1/settings');
+        if (result.status === 'success') {
+            renderSettings(result.data);
+        }
+    } catch (e) {
+        grid.innerHTML = `<div style="color:var(--red); padding:20px; text-align:center;">Error: ${e.message}</div>`;
+    }
+}
+
+function renderSettings(settings) {
+    const grid = document.getElementById('settings-grid');
+    if (settings.length === 0) {
+        grid.innerHTML = '<div style="text-align:center; color:var(--text-muted); padding:20px;">No settings found</div>';
+        return;
+    }
+
+    grid.innerHTML = settings.map(s => `
+        <div class="setting-row">
+            <label class="setting-label">${s.key.replace(/_/g, ' ')}</label>
+            <div class="setting-input-wrap">
+                <input type="text" class="setting-input" data-key="${s.key}" value="${s.value}">
+            </div>
+            <div class="setting-desc">${s.description || 'No description available.'}</div>
+        </div>
+    `).join('');
+}
+
+window.saveAllSettings = async function() {
+    const btn = document.querySelector('.save-settings-btn');
+    const inputs = document.querySelectorAll('.setting-input');
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const input of inputs) {
+        const key = input.dataset.key;
+        const value = input.value;
+        try {
+            await apiRequest(`/api/v1/settings/${key}`, {
+                method: 'PUT',
+                body: { value }
+            });
+            successCount++;
+        } catch (e) {
+            console.error(`Failed to save ${key}:`, e);
+            failCount++;
+        }
+    }
+
+    btn.disabled = false;
+    btn.textContent = '💾 Save All Changes';
+
+    if (failCount === 0) {
+        showSuccess('Settings Saved!');
+        try { tg.HapticFeedback.notificationOccurred('success'); } catch(e) {}
+    } else {
+        alert(`Saved ${successCount} settings, but ${failCount} failed. Check console.`);
+    }
+};
+
+window.checkHealth = async function() {
+    try {
+        const result = await apiRequest('/health');
+        if (result.status === 'ok') {
+            alert('✅ System Status: OK\n\nDatabase and services are connected.');
+        } else {
+            alert('⚠️ System Status: ISSUE\n\n' + JSON.stringify(result, null, 2));
+        }
+    } catch (e) {
+        alert('❌ System Unreachable: ' + e.message);
+    }
+};
 
 // ===== START =====
 initializeApp();

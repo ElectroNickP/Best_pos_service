@@ -5,8 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Best Sea — Pier POS</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <link rel="stylesheet" href="/static/css/pos.css?v=1">
+    <link rel="stylesheet" href="/static/css/pos.css?v=3">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.4.4/build/qrcode.min.js"></script>
 </head>
 <body>
 
@@ -52,12 +53,17 @@
             <div class="kpi-val online" id="kpi-online">0฿</div>
             <div class="kpi-label">📱 Online</div>
         </div>
+        <div class="kpi-item kpi-pending" id="kpi-pending-wrap" style="display:none;">
+            <div class="kpi-val pending" id="kpi-pending">0</div>
+            <div class="kpi-label">⏳ Pending</div>
+        </div>
     </div>
 
     <!-- ===== TABS ===== -->
     <div class="tabs">
         <button class="tab-btn active" id="tab-btn-pos" onclick="switchTab('pos')">🛒 POS</button>
         <button class="tab-btn" id="tab-btn-report" onclick="switchTab('report')">📊 Report</button>
+        <button class="tab-btn" id="tab-btn-settings" onclick="switchTab('settings')">⚙️ Settings</button>
     </div>
 
     <!-- ===== BODY ===== -->
@@ -67,10 +73,10 @@
         <div id="panel-pos" class="tab-panel active">
             <!-- Session Controls -->
             <div class="session-controls" id="session-controls">
-                <button class="session-open-btn" id="session-open-btn" onclick="toggleSession()">🟢 Open New Session</button>
+                <button class="session-open-btn" id="session-open-btn">🟢 Open New Session</button>
             </div>
-            <div id="session-active-controls" style="display:none;">
-                <button class="session-close-btn" onclick="toggleSession()">🔴 Close Session &amp; Finalize Report</button>
+            <div id="session-active-controls" class="session-controls" style="display:none; width: 100%;">
+                <button class="session-close-btn" id="session-close-btn">🔴 Close Session &amp; Finalize Report</button>
             </div>
             <div class="pos-layout">
                 <!-- LEFT: Products -->
@@ -79,6 +85,9 @@
                     <div class="category-pills" id="category-pills">
                         <button class="cat-pill active" data-cat="all" onclick="filterCategory('all', this)">All</button>
                         <!-- Dynamic pills injected -->
+                    </div>
+                    <div class="search-bar">
+                        <input type="text" id="product-search" placeholder="🔍 Search products..." oninput="filterProducts()" autocomplete="off">
                     </div>
 
                     <!-- Product Grid -->
@@ -166,6 +175,42 @@
                 </div>
             </div>
         </div>
+        
+        <!-- SETTINGS PANEL -->
+        <div id="panel-settings" class="tab-panel">
+            <div class="settings-panel">
+                <div class="settings-section">
+                    <div class="rs-header">⚙️ System Configuration</div>
+                    <div class="settings-grid" id="settings-grid">
+                        <!-- Settings rows injected -->
+                        <div class="loader-spinner" style="margin: 20px auto;"></div>
+                    </div>
+                    <div class="settings-actions">
+                        <button class="save-settings-btn" onclick="saveAllSettings()">💾 Save All Changes</button>
+                    </div>
+                </div>
+
+                <div class="settings-section">
+                    <div class="rs-header">🛠 Maintenance</div>
+                    <div class="maintenance-grid">
+                        <div class="maint-item">
+                            <div class="maint-info">
+                                <div class="maint-title">Product Catalog Sync</div>
+                                <div class="maint-desc">Force update products from Google Sheets immediately.</div>
+                            </div>
+                            <button class="maint-btn" onclick="syncData()">🔄 Sync Now</button>
+                        </div>
+                        <div class="maint-item">
+                            <div class="maint-info">
+                                <div class="maint-title">System Status</div>
+                                <div class="maint-desc">Check database and external services connectivity.</div>
+                            </div>
+                            <button class="maint-btn" onclick="checkHealth()">🏥 Check Health</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
 
     </div>
 
@@ -195,6 +240,28 @@
         </div>
     </div>
 
-    <script src="/static/js/pos.js?v=1"></script>
+    <!-- PAYMENT MODAL (for QR code) -->
+    <div id="payment-modal" class="modal-overlay">
+        <div class="modal-content">
+            <button class="modal-close" onclick="closePaymentModal('close')">&times;</button>
+            <h3 style="font-weight:800; margin-bottom:8px;">📱 Online Payment</h3>
+            <div id="qr-container">
+                <canvas id="qr-canvas"></canvas>
+            </div>
+            <div class="payment-info">
+                <div class="pay-amount-rub" id="pay-amount-rub">0 ₽</div>
+                <div class="pay-rate" id="pay-rate">Rate: 1 THB = 0 RUB</div>
+                <p style="margin-top:12px; font-size:13px; color:var(--text-secondary); line-height:1.4;">
+                    Please show this QR to the tourist. They can pay via any Russian banking app (SBP).
+                </p>
+            </div>
+            <div style="display:flex; gap:10px; margin-top:20px;">
+                <button class="modal-done-btn" style="flex:1; background:var(--bg-secondary); color:var(--text-primary); border:1px solid var(--border-color);" onclick="closePaymentModal('cancel')">Cancel Sale</button>
+                <button class="modal-done-btn" style="flex:1;" onclick="closePaymentModal('paid')">Payment Done</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/pos.js?v=7"></script>
 </body>
 </html>
